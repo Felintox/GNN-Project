@@ -1,4 +1,5 @@
 # GCN - Classificação de Nós (Dataset Cora)
+
 <img width="700" height="363" alt="gcn_web" src="https://github.com/user-attachments/assets/82f6223c-7a51-4795-b071-36698c040d9f" />
 
 Este projeto implementa uma Rede Neural Convolucional em Grafos (Graph Convolutional Network - GCN) para classificar nós em um grafo. O modelo foi desenvolvido utilizando a biblioteca PyTorch Geometric.
