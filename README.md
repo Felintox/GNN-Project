@@ -20,20 +20,30 @@ O dataset utilizado é o **Cora** (disponibilizado via `Planetoid` no PyTorch Ge
 - Python
 - PyTorch
 - PyTorch Geometric
+- Optuna
 
 ## Arquitetura do Modelo
 
 A rede neural foi construída com duas camadas convolucionais para grafos (`GCNConv`):
-1. **Camada 1:** Agrega os vizinhos e reduz a dimensionalidade das features (1433 -> 16 canais).
-2. **Ativação e Regularização:** Utiliza ativação não-linear `ReLU` e `Dropout` (p=0.5) para evitar overfitting.
-3. **Camada 2:** Gera a pontuação final para cada classe (16 -> 7 canais).
+1. **Camada 1:** Agrega os vizinhos e reduz a dimensionalidade das features (1433 -> `hidden_channels` variável).
+2. **Ativação e Regularização:** Utiliza ativação não-linear `ReLU` e taxa de `Dropout` otimizada para evitar overfitting.
+3. **Camada 2:** Gera a pontuação final para cada classe (`hidden_channels` -> 7 canais).
 
-O modelo é treinado por 200 épocas utilizando o otimizador **Adam** e a função de custo **CrossEntropyLoss**.
+## Otimização de Hiperparâmetros
+
+Este projeto utiliza o **Optuna** para buscar automaticamente os melhores hiperparâmetros. Durante a otimização (50 *trials*), são testados e ajustados:
+- Taxa de aprendizado (`lr`)
+- Número de canais ocultos (`hidden_channels`: 16, 32, 64 ou 128)
+- Taxa de `Dropout`
+- Decaimento de pesos (`weight_decay`)
+
+Após encontrar a melhor combinação com base na acurácia de validação, o modelo final é treinado por 200 épocas utilizando o otimizador **Adam** e a função de custo **CrossEntropyLoss**, sendo posteriormente avaliado no conjunto de teste.
 
 ## Como executar
 
-Certifique-se de ter as bibliotecas instaladas (PyTorch e PyTorch Geometric) e execute o script Python:
+Certifique-se de ter as bibliotecas instaladas (PyTorch, PyTorch Geometric e Optuna) e execute o script Python:
 
 ```bash
+pip install optuna
 python cora-classification.py
 ```
