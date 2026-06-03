@@ -101,7 +101,7 @@ def objective (trial):
     lr= trial.suggest_float('lr',1e-4,1e-1,log=True)
     hidden_channels=trial.suggest_categorical('hidden_channels',[16,32,64,128   ])
     dropout=trial.suggest_float('dropout',0.2,0.7)
-    weight_decay = trial.suggest_float("weight_decay", 1e-5, 1e-2, log=True)
+    weight_decay = trial.suggest_float("weight_decay", 1e-4, 1e-2, log=True)
 
     model= GCN(
         in_channels=data.num_node_features,
