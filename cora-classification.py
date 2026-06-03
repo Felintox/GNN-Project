@@ -11,6 +11,7 @@ from torch_geometric.nn import GCNConv # Importação da camada de convolução 
 import torch.nn.functional as F # Importação de funções de ativação e perda
 import torch.nn as nn 
 import torch
+import optuna
 
 
 #%%
@@ -69,15 +70,16 @@ print(f'Nós de teste: {dataset[0].test_mask.sum()}')
 
 #%%
 class GCN(nn.Module):
-    def __init__(self,in_channels,hidden_channels,out_channels):
+    def __init__(self,in_channels,hidden_channels,out_channels,dropout=0.5):
         super(GCN,self).__init__()
         self.conv1= GCNConv(in_channels,hidden_channels)
         self.conv2= GCNConv(hidden_channels,out_channels)
+        self.dropout=dropout
 
     def forward(self,x,edge_index):
         x=self.conv1(x,edge_index)
         x=F.relu(x)
-        x=F.dropout(x,p=0.5)
+        x=F.dropout(x,p=self.dropout,training=self.training)
         x=self.conv2(x,edge_index)
         return x
 #%% [markdown]
@@ -87,41 +89,99 @@ class GCN(nn.Module):
 # relu:     [2708, 16]    ← não-linearidade
 # dropout:  [2708, 16]    ← regularização
 # conv2:    [2708, 7]     ← uma pontuação por classe pra cada nó
-
 #%%
-def train(model, train_mask, data, optimizer, criterion):
+data=dataset[0].to(device)
+#%%
+
+# Data(x=[2708, 1433], edge_index=[2, 10556], y=[2708], 
+# train_mask=[2708], val_mask=[2708], test_mask=[2708])
+#%%
+def objective (trial):
+    # definindo hiperparametros a serem otimizados
+    lr= trial.suggest_float('lr',1e-4,1e-1,log=True)
+    hidden_channels=trial.suggest_categorical('hidden_channels',[16,32,64,128   ])
+    dropout=trial.suggest_float('dropout',0.2,0.7)
+    weight_decay = trial.suggest_float("weight_decay", 1e-4, 1e-2, log=True)
+
+    model= GCN(
+        in_channels=data.num_node_features,
+        hidden_channels=hidden_channels,
+        out_channels=dataset.num_classes,
+        dropout=dropout
+    ).to(device)
+
+    optimizer=torch.optim.Adam(model.parameters(),
+                               lr=lr,
+                               weight_decay=weight_decay
+                               )
+    
+    criterion=torch.nn.CrossEntropyLoss()
+
+    for epoch in range(200):
+        model.train()
+        optimizer.zero_grad()
+        out=model(data.x,data.edge_index)
+        loss=criterion(out[data.train_mask],data.y[data.train_mask])
+        loss.backward()
+        optimizer.step()
+        
+        if (epoch + 1) % 50 == 0:  # só a cada 50 épocas
+            print(f"  Trial {trial.number} | Epoch {epoch+1} | Loss: {loss.item():.4f}")
+
+    model.eval()
+    with torch.no_grad():
+  
+        out=model(data.x,data.edge_index)
+        pred=out.argmax(dim=1)
+        val_acc=(pred[data.val_mask]==data.y[data.val_mask]).float().mean().item()
+    
+    return val_acc
+    
+#%%
+study=optuna.create_study(direction='maximize')
+study.optimize(objective,n_trials=50,show_progress_bar=True)
+
+bp=study.best_params
+
+print(f"Melhores Hiperparâmetros: {bp}")
+print(f"Melhor Acurácia de Validação: {study.best_value:.4f}")
+
+#%% [markdown]
+# Agora que temos os melhores hiperparâmetros, podemos treinar o modelo final e avaliar no conjunto de teste.
+
+# %%
+model= GCN(
+    in_channels=data.num_node_features,
+    hidden_channels=bp['hidden_channels'],
+    out_channels=dataset.num_classes,
+    dropout=bp['dropout']
+).to(device)
+
+optimizer=torch.optim.Adam(model.parameters(),
+                           lr=bp['lr'],
+                           weight_decay=bp['weight_decay']
+                           )
+criterion=torch.nn.CrossEntropyLoss()
+
+for epoch in range(200):
     model.train()
     optimizer.zero_grad()
     out=model(data.x,data.edge_index)
-    loss=criterion(out[train_mask],data.y[train_mask])
+    loss=criterion(out[data.train_mask],data.y[data.train_mask])
     loss.backward()
     optimizer.step()
-    return loss
+    
+    if (epoch + 1) % 50 == 0:
+        print(f"Epoch {epoch+1} | Loss: {loss.item():.4f}")
 
-#%%
-criterion = torch.nn.CrossEntropyLoss()
-model = GCN(in_channels=dataset.num_node_features, hidden_channels=16, out_channels=dataset.num_classes).to(device)
-optimizer = torch.optim.Adam(model.parameters(), lr=0.01, weight_decay=5e-4)
+model.eval()
+with torch.no_grad():
+    out=model(data.x,data.edge_index)
+    pred=out.argmax(dim=1)
 
-#%%
-data=dataset[0].to(device)
-for epoch in range(200):
-    loss = train(model,data.train_mask,data, optimizer, criterion)
-    print(f'Epoch: {epoch+1:03d}, Loss: {loss:.4f}')
+test_acc=(pred[data.test_mask]==data.y[data.test_mask]).float().mean().item()
+val_acc=(pred[data.val_mask]==data.y[data.val_mask]).float().mean().item()
 
-#%%
-def evaluate(model, data, mask):
-    model.eval()                            # desativa dropout
-    with torch.no_grad():                   # não calcula gradiente
-        out = model(data.x, data.edge_index)
-        pred = out.argmax(dim=1)            # classe com maior pontuação
-        correct = pred[mask] == data.y[mask]
-        return correct.sum() / mask.sum()   # acurácia
-
-# %%
-val_acc  = evaluate(model, data, data.val_mask)
-test_acc = evaluate(model, data, data.test_mask)
-
-print(f'Val Acc:  {val_acc:.4f}')
-print(f'Test Acc: {test_acc:.4f}')
+print(f"Test Acc: {test_acc:.4f}")
+print(f"Val Acc: {val_acc:.4f}")
 # %%
